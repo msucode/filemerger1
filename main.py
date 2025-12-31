@@ -5,7 +5,7 @@ import json
 
 # --- CONFIGURATION ---
 # PASTE YOUR GOOGLE SHEET ID HERE (Keep the quotes!)
-GOOGLE_SHEET_ID = "PASTE_YOUR_LONG_GOOGLE_SHEET_ID_HERE"
+GOOGLE_SHEET_ID = "1Tlq1386a67nifXnx4_l9rlX1wbWyylJgQrdiZsOEIxY"
 MAIN_TAB_NAME   = "Processed Data"
 DUP_TAB_NAME    = "Duplicates Found"
 # ---------------------
