@@ -5,7 +5,7 @@ import json
 
 # --- CONFIGURATION ---
 # PASTE YOUR GOOGLE SHEET ID HERE (Keep the quotes!)
-GOOGLE_SHEET_ID = "1Tlq1386a67nifXnx4_l9rlX1wbWyylJgQrdiZsOEIxY"
+GOOGLE_SHEET_ID = "PASTE_YOUR_LONG_GOOGLE_SHEET_ID_HERE"
 MAIN_TAB_NAME   = "Processed Data"
 DUP_TAB_NAME    = "Duplicates Found"
 # ---------------------
@@ -13,10 +13,22 @@ DUP_TAB_NAME    = "Duplicates Found"
 def connect_to_google():
     """Connects to Google Sheets using Streamlit Secrets."""
     try:
-        # Load credentials from Streamlit secrets
-        creds_dict = json.loads(st.secrets["GOOGLE_CREDENTIALS"])
+        if "GOOGLE_CREDENTIALS" not in st.secrets:
+            st.error("Secret 'GOOGLE_CREDENTIALS' not found.")
+            return None
+
+        # Get the raw string
+        raw_json = st.secrets["GOOGLE_CREDENTIALS"]
+        
+        # FIX: 'strict=False' allows control characters (newlines) inside the string
+        creds_dict = json.loads(raw_json, strict=False)
+        
         gc = gspread.service_account_from_dict(creds_dict)
         return gc.open_by_key(GOOGLE_SHEET_ID)
+        
+    except json.JSONDecodeError as e:
+        st.error(f"JSON Error in Secrets: {e}. Try removing newlines in your secret key.")
+        return None
     except Exception as e:
         st.error(f"Google Connection Error: {e}")
         return None
