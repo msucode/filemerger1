@@ -1,0 +1,22 @@
+name: Process Excel to Google Sheets
+on: workflow_dispatch  # This creates a "Run" button
+
+jobs:
+  run-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Install Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Libraries
+        run: pip install -r requirements.txt
+
+      - name: Run Script
+        env:
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+        run: python run_process.py
