@@ -3,13 +3,6 @@ import pandas as pd
 import gspread
 import json
 
-# --- CONFIGURATION ---
-# PASTE YOUR GOOGLE SHEET ID HERE (Keep the quotes!)
-GOOGLE_SHEET_ID = "PASTE_YOUR_LONG_GOOGLE_SHEET_ID_HERE"
-MAIN_TAB_NAME   = "Processed Data"
-DUP_TAB_NAME    = "Duplicates Found"
-# ---------------------
-
 def get_google_client(uploaded_file, pasted_text):
     """Tries to get Google Client from File Upload OR Pasted Text."""
     creds = None
@@ -44,37 +37,46 @@ def main():
     st.set_page_config(page_title="Excel Merger", page_icon="📂")
     st.title("📂 Excel Merger & Google Uploader")
 
-    # --- SIDEBAR: AUTHENTICATION ---
-    st.sidebar.header("🔑 Authentication")
+    # --- SIDEBAR: CONFIGURATION ---
+    st.sidebar.header("⚙️ Configuration")
     
-    # Option 1: File
-    uploaded_key = st.sidebar.file_uploader("Option 1: Upload JSON File", type=['json'])
-    
-    st.sidebar.markdown("--- OR ---")
-    
-    # Option 2: Paste Text
-    pasted_key = st.sidebar.text_area("Option 2: Paste JSON Content Here", height=200)
+    # 1. GOOGLE SHEET ID INPUT
+    st.sidebar.subheader("1. Destination Sheet")
+    sheet_id = st.sidebar.text_input("Paste Google Sheet ID here:", help="Copy the long string from your Google Sheet URL.")
+
+    # 2. AUTHENTICATION INPUTS
+    st.sidebar.subheader("2. Authentication Key")
+    st.sidebar.info("Upload your 'client_secret.json' OR paste the text.")
+    uploaded_key = st.sidebar.file_uploader("Upload JSON File", type=['json'])
+    st.sidebar.text("--- OR ---")
+    pasted_key = st.sidebar.text_area("Paste JSON Content", height=150, help="Open your json file in Notepad, copy all, paste here.")
 
     # --- MAIN CONTENT ---
-    uploaded_files = st.file_uploader("Upload Excel Files to Merge", type=['xlsx'], accept_multiple_files=True)
+    st.subheader("3. Upload Excel Files")
+    uploaded_files = st.file_uploader("Drop Excel files here to merge", type=['xlsx'], accept_multiple_files=True)
 
     if st.button("Merge & Upload"):
+        # VALIDATION
+        if not sheet_id:
+            st.error("❌ Please paste your Google Sheet ID in the Sidebar.")
+            st.stop()
+        
+        if not uploaded_files:
+            st.warning("⚠️ Please upload at least one Excel file.")
+            return
+
         # 1. CONNECT TO GOOGLE
         gc = get_google_client(uploaded_key, pasted_key)
         
         if not gc:
-            st.error("❌ You must upload a JSON file OR paste the key text in the sidebar!")
+            st.error("❌ Authentication Missing! Upload your JSON file or paste the key in the sidebar.")
             st.stop()
 
         try:
-            sh = gc.open_by_key(GOOGLE_SHEET_ID)
+            sh = gc.open_by_key(sheet_id)
         except Exception as e:
-            st.error(f"❌ Connected to Google, but could not open Sheet.\nCheck your Sheet ID: {GOOGLE_SHEET_ID}\nError: {e}")
+            st.error(f"❌ Connection Successful, but could not find the Sheet.\n\n1. Check the ID: {sheet_id}\n2. Did you SHARE the sheet with the email inside your JSON key?\n\nError: {e}")
             st.stop()
-
-        if not uploaded_files:
-            st.warning("Please upload at least one Excel file.")
-            return
 
         st.info("Reading files...")
         
@@ -128,9 +130,9 @@ def main():
             st.success(f"✅ Uploaded to '{tab}'")
 
         try:
-            upload(MAIN_TAB_NAME, master_df)
+            upload("Processed Data", master_df)
             if not df_dupes.empty:
-                upload(DUP_TAB_NAME, df_dupes)
+                upload("Duplicates Found", df_dupes)
             else:
                 st.info("No duplicates found.")
         except Exception as e:
@@ -138,3 +140,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
