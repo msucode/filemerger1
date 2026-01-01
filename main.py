@@ -42,7 +42,8 @@ def main():
     
     # 1. GOOGLE SHEET ID INPUT
     st.sidebar.subheader("1. Destination Sheet")
-    sheet_id = st.sidebar.text_input("Paste Google Sheet ID here:", help="Copy the long string from your Google Sheet URL.")
+    sheet_id = st.sidebar.text_input("1Tlq1386a67nifXnx4_l9rlX1wbWyylJgQrdiZsOEIxY", help="https://docs.google.com/spreadsheets/d/1Tlq1386a67nifXnx4_l9rlX1wbWyylJgQrdiZsOEIxY/edit?gid=0#gid=0
+")
 
     # 2. AUTHENTICATION INPUTS
     st.sidebar.subheader("2. Authentication Key")
