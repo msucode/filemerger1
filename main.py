@@ -10,57 +10,79 @@ MAIN_TAB_NAME   = "Processed Data"
 DUP_TAB_NAME    = "Duplicates Found"
 # ---------------------
 
-def connect_to_google():
-    """Connects to Google Sheets using Streamlit Secrets."""
-    try:
-        if "GOOGLE_CREDENTIALS" not in st.secrets:
-            st.error("Secret 'GOOGLE_CREDENTIALS' not found.")
+def get_google_client(uploaded_file, pasted_text):
+    """Tries to get Google Client from File Upload OR Pasted Text."""
+    creds = None
+    
+    # Priority 1: File Upload
+    if uploaded_file is not None:
+        try:
+            creds = json.load(uploaded_file)
+        except Exception as e:
+            st.error(f"❌ Error reading uploaded file: {e}")
             return None
 
-        # Get the raw string
-        raw_json = st.secrets["GOOGLE_CREDENTIALS"]
-        
-        # FIX: 'strict=False' allows control characters (newlines) inside the string
-        creds_dict = json.loads(raw_json, strict=False)
-        
-        gc = gspread.service_account_from_dict(creds_dict)
-        return gc.open_by_key(GOOGLE_SHEET_ID)
-        
-    except json.JSONDecodeError as e:
-        st.error(f"JSON Error in Secrets: {e}. Try removing newlines in your secret key.")
-        return None
-    except Exception as e:
-        st.error(f"Google Connection Error: {e}")
-        return None
+    # Priority 2: Pasted Text
+    elif pasted_text.strip():
+        try:
+            creds = json.loads(pasted_text, strict=False)
+        except Exception as e:
+            st.error(f"❌ Error reading pasted text. Make sure you copied the WHOLE content.\nDetails: {e}")
+            return None
 
-def extract_date(transaction_id):
-    """Extracts date from Transaction ID (DDMMYYYY logic)."""
-    if isinstance(transaction_id, str):
-        parts = transaction_id.split('-')
-        if len(parts) >= 2 and len(parts[1]) >= 8:
-            date_part = parts[1][:8]
-            return f"{date_part[:2]}/{date_part[2:4]}/{date_part[4:]}"
+    # Connect if we have creds
+    if creds:
+        try:
+            return gspread.service_account_from_dict(creds)
+        except Exception as e:
+            st.error(f"❌ Login failed: {e}")
+            return None
+            
     return None
 
 def main():
+    st.set_page_config(page_title="Excel Merger", page_icon="📂")
     st.title("📂 Excel Merger & Google Uploader")
 
-    # 1. FILE UPLOAD WIDGET
-    uploaded_files = st.file_uploader("Upload Excel Files", type=['xlsx'], accept_multiple_files=True)
+    # --- SIDEBAR: AUTHENTICATION ---
+    st.sidebar.header("🔑 Authentication")
+    
+    # Option 1: File
+    uploaded_key = st.sidebar.file_uploader("Option 1: Upload JSON File", type=['json'])
+    
+    st.sidebar.markdown("--- OR ---")
+    
+    # Option 2: Paste Text
+    pasted_key = st.sidebar.text_area("Option 2: Paste JSON Content Here", height=200)
 
-    # 2. SUBMIT BUTTON
+    # --- MAIN CONTENT ---
+    uploaded_files = st.file_uploader("Upload Excel Files to Merge", type=['xlsx'], accept_multiple_files=True)
+
     if st.button("Merge & Upload"):
+        # 1. CONNECT TO GOOGLE
+        gc = get_google_client(uploaded_key, pasted_key)
+        
+        if not gc:
+            st.error("❌ You must upload a JSON file OR paste the key text in the sidebar!")
+            st.stop()
+
+        try:
+            sh = gc.open_by_key(GOOGLE_SHEET_ID)
+        except Exception as e:
+            st.error(f"❌ Connected to Google, but could not open Sheet.\nCheck your Sheet ID: {GOOGLE_SHEET_ID}\nError: {e}")
+            st.stop()
+
         if not uploaded_files:
-            st.warning("Please upload at least one file.")
+            st.warning("Please upload at least one Excel file.")
             return
 
-        st.info("Reading and merging files...")
+        st.info("Reading files...")
         
-        # Merge Files
+        # 2. PROCESS FILES
         all_dfs = []
         for file in uploaded_files:
             try:
-                # header=1 means Row 2 is the header (Skip Row 1)
+                # header=1 means Row 2 is the header
                 df = pd.read_excel(file, header=1)
                 all_dfs.append(df)
             except Exception as e:
@@ -68,22 +90,24 @@ def main():
                 return
 
         if not all_dfs:
-            st.error("No data found.")
+            st.error("No valid data found.")
             return
 
-        # Combine into one Master DataFrame
+        # Merge
         master_df = pd.concat(all_dfs, ignore_index=True)
-        st.write(f"✅ Merged {len(master_df)} total rows.")
+        st.write(f"✅ Merged {len(master_df)} rows.")
 
-        # Data Logic: Extract Date
+        # Logic
         if 'Transaction ID' in master_df.columns:
-            master_df['Date'] = master_df['Transaction ID'].apply(extract_date)
+            master_df['Date'] = master_df['Transaction ID'].apply(
+                lambda x: f"{x.split('-')[1][:2]}/{x.split('-')[1][2:4]}/{x.split('-')[1][4:8]}" 
+                if isinstance(x, str) and '-' in x else None
+            )
 
-        # Clean Mobile Numbers (remove .0)
         if 'Mobile Number' in master_df.columns:
             master_df['Mobile Number'] = master_df['Mobile Number'].astype(str).str.replace(r'\.0$', '', regex=True)
 
-        # Duplicate Logic
+        # Duplicates
         dup_cols = ['Name', 'Mobile Number']
         if set(dup_cols).issubset(master_df.columns):
             dup_mask = master_df.duplicated(subset=dup_cols, keep=False)
@@ -91,36 +115,26 @@ def main():
         else:
             df_dupes = pd.DataFrame()
 
-        # Google Upload
-        sh = connect_to_google()
-        if sh:
+        # 3. UPLOAD
+        def upload(tab, df):
             try:
-                # Upload Main Data
-                ws_main = get_or_create_worksheet(sh, MAIN_TAB_NAME, master_df)
-                set_worksheet_data(ws_main, master_df)
-                st.success(f"Uploaded main data to '{MAIN_TAB_NAME}'")
+                ws = sh.worksheet(tab)
+                ws.clear()
+            except gspread.WorksheetNotFound:
+                ws = sh.add_worksheet(title=tab, rows=len(df)+50, cols=len(df.columns))
+            
+            df = df.fillna('')
+            ws.update([df.columns.values.tolist()] + df.values.tolist())
+            st.success(f"✅ Uploaded to '{tab}'")
 
-                # Upload Duplicates
-                if not df_dupes.empty:
-                    ws_dup = get_or_create_worksheet(sh, DUP_TAB_NAME, df_dupes)
-                    set_worksheet_data(ws_dup, df_dupes)
-                    st.success(f"Uploaded duplicates to '{DUP_TAB_NAME}'")
-                else:
-                    st.info("No duplicates found.")
-                    
-            except Exception as e:
-                st.error(f"Upload failed: {e}")
-
-def get_or_create_worksheet(sh, title, df):
-    try:
-        return sh.worksheet(title)
-    except gspread.WorksheetNotFound:
-        return sh.add_worksheet(title=title, rows=len(df)+50, cols=len(df.columns))
-
-def set_worksheet_data(ws, df):
-    ws.clear()
-    df_clean = df.fillna('')
-    ws.update([df_clean.columns.values.tolist()] + df_clean.values.tolist())
+        try:
+            upload(MAIN_TAB_NAME, master_df)
+            if not df_dupes.empty:
+                upload(DUP_TAB_NAME, df_dupes)
+            else:
+                st.info("No duplicates found.")
+        except Exception as e:
+            st.error(f"Upload failed: {e}")
 
 if __name__ == "__main__":
     main()
